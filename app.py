@@ -13,7 +13,21 @@ from modules.image_ocr import extract_text_from_image
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app)
+
+allowed_origins_str = os.getenv("ALLOWED_ORIGINS")
+
+if allowed_origins_str:
+    # Split the comma-separated string into a list of origins.
+    origins = [origin.strip() for origin in allowed_origins_str.split(',')]
+    logging.info(f"CORS enabled for origins: {origins}")
+else:
+    # A fallback for local development or if the variable is not set.
+    origins = ["https://www.coxistai.com", "http://localhost:5000", "http://localhost:5173"]
+    logging.warning(f"ALLOWED_ORIGINS environment variable not set. Using default origins: {origins}")
+
+# Initialize CORS to apply the necessary headers to all /api/ routes.
+CORS(app, resources={r"/api/*": {"origins": origins}}, supports_credentials=True)
+
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 app.config['UPLOAD_FOLDER'] = 'temp_uploads'
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
