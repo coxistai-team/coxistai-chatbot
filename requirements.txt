@@ -7,9 +7,10 @@ flask-cors==4.0.0
 # Machine Learning Core
 # Pinned to specific versions for stable, reproducible builds.
 # Using torch without CUDA for CPU-only inference on Render.
-torch==2.1.2
+torch==2.5.1
 transformers==4.35.2
-sentencepiece==0.1.99
+# sentencepiece==0.1.99
+sentencepiece>=0.2.0
 
 # Other dependencies from original file
 requests==2.31.0
