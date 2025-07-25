@@ -10,33 +10,52 @@ from modules.text_classifier import is_educational
 from modules.pdf_parser import extract_text_from_file
 from modules.image_ocr import extract_text_from_image
 
+# Load environment variables from .env file
 load_dotenv()
 
-app = Flask(__name__)
-
-allowed_origins_str = os.getenv("ALLOWED_ORIGINS")
-
-if allowed_origins_str:
-    # Split the comma-separated string into a list of origins.
-    origins = [origin.strip() for origin in allowed_origins_str.split(',')]
-    logging.info(f"CORS enabled for origins: {origins}")
-else:
-    # A fallback for local development or if the variable is not set.
-    origins = ["https://www.coxistai.com", "http://localhost:5000", "http://localhost:5173"]
-    logging.warning(f"ALLOWED_ORIGINS environment variable not set. Using default origins: {origins}")
-
-# Initialize CORS to apply the necessary headers to all /api/ routes.
-CORS(app, resources={r"/api/*": {"origins": origins}}, supports_credentials=True)
-
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
-app.config['UPLOAD_FOLDER'] = 'temp_uploads'
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-
+# Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-API_KEY = os.getenv("OPENAI_API_KEY")
+# Initialize Flask app
+app = Flask(__name__)
+
+# --- FIX: ROBUST CORS CONFIGURATION ---
+
+# 1. Read allowed origins from environment variable
+allowed_origins_str = os.getenv("ALLOWED_ORIGINS")
+if allowed_origins_str:
+    origins = [origin.strip() for origin in allowed_origins_str.split(',')]
+    logger.info(f"CORS will be configured for these origins: {origins}")
+else:
+    # Fallback for local development or if the variable is misconfigured
+    origins = ["https://www.coxistai.com", "http://localhost:5173", "http://localhost:5000"]
+    logger.warning(f"ALLOWED_ORIGINS env var not set. Using default fallback: {origins}")
+
+# 2. Initialize the CORS extension with specific options
+# This configuration is more explicit and reliable for handling preflight OPTIONS requests.
+CORS(
+    app,
+    origins=origins,  # List of allowed origins
+    supports_credentials=True,  # Allows cookies and authorization headers
+    methods=["GET", "POST", "OPTIONS"],  # Explicitly allow methods
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With"] # Explicitly allow headers
+)
+# --- END OF FIX ---
+
+
+# App Configuration
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB max file size
+app.config['UPLOAD_FOLDER'] = 'temp_uploads'
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+# Initialize the AI assistant
+API_KEY = os.getenv("OPENROUTER_API_KEY")
+if not API_KEY:
+    logger.error("FATAL: OPENROUTER_API_KEY environment variable is not set.")
+    # In a real app, you might want to exit or handle this more gracefully.
 assistant = SmartDeepSeek(API_KEY)
+
 
 SYSTEM_PROMPT = """You are an expert educational assistant named SparkTutor. Provide clean, well-structured, and direct answers.
 - Use bold text for key terms.
@@ -51,10 +70,12 @@ ALLOWED_EXTENSIONS = {
 }
 
 def allowed_file(filename, file_type):
+    """Check if the uploaded file has an allowed extension."""
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS.get(file_type, set())
 
 def extract_text_from_file_input(file_path, file_type):
+    """Extract text from either an image or a document."""
     try:
         if file_type == 'image':
             return extract_text_from_image(file_path), True
@@ -66,12 +87,15 @@ def extract_text_from_file_input(file_path, file_type):
         logger.error(f"Error extracting text from {file_type}: {str(e)}")
         return None, False
 
+# --- API ROUTES ---
+
 @app.route('/')
 def index():
-    return jsonify({'message': 'SparkTutor API is running'})
+    return jsonify({'message': 'SparkTutor Chatbot API is online and healthy.'})
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
+    """Provides a health check and service info."""
     serializable_extensions = {
         key: list(value) for key, value in ALLOWED_EXTENSIONS.items()
     }
@@ -82,6 +106,7 @@ def health_check():
 
 @app.route('/api/chat/text', methods=['POST'])
 def chat_text():
+    """Handle text-based chat messages."""
     data = request.get_json()
     if not data or 'message' not in data or not data['message'].strip():
         return jsonify({'error': 'Message is required and cannot be empty'}), 400
@@ -99,10 +124,11 @@ def chat_text():
         return jsonify({'success': True, 'ai_response': response, 'is_educational': True})
     except Exception as e:
         logger.error(f"Error in chat_text: {str(e)}")
-        return jsonify({'error': 'Failed to generate response.'}), 500
+        return jsonify({'error': 'Failed to generate AI response.'}), 500
 
 @app.route('/api/chat/file', methods=['POST'])
 def chat_file():
+    """Handle file uploads and subsequent chat."""
     if 'file' not in request.files or request.files['file'].filename == '':
         return jsonify({'error': 'No file provided or selected'}), 400
 
@@ -119,12 +145,12 @@ def chat_file():
         extracted_text, success = extract_text_from_file_input(temp_path, file_type)
         
         if not success or not extracted_text:
-            return jsonify({'error': f'Failed to extract text from {file_type} file.'}), 400
+            return jsonify({'error': f'Failed to extract text from the {file_type} file.'}), 400
         
         if not is_educational(extracted_text):
             return jsonify({
                 'success': True,
-                'ai_response': "This content doesn't appear to be educational.",
+                'ai_response': "The content of this file does not appear to be educational.",
                 'is_educational': False
             })
 
@@ -132,14 +158,15 @@ def chat_file():
         return jsonify({'success': True, 'ai_response': response, 'is_educational': True})
 
     except Exception as e:
-        logger.error(f"Error processing file: {str(e)}")
-        return jsonify({'error': 'Failed to process file'}), 500
+        logger.error(f"Error processing file '{filename}': {str(e)}")
+        return jsonify({'error': 'An unexpected error occurred while processing the file'}), 500
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)
 
 @app.route('/api/classify', methods=['POST'])
 def classify_text():
+    """Classify a given text as educational or not."""
     data = request.get_json()
     if not data or 'text' not in data:
         return jsonify({'error': 'Text is required'}), 400
@@ -152,6 +179,7 @@ def classify_text():
 
 @app.route('/api/extract', methods=['POST'])
 def extract_only():
+    """Extract text from a file without generating an AI response."""
     if 'file' not in request.files or request.files['file'].filename == '':
         return jsonify({'error': 'No file provided or selected'}), 400
 
@@ -169,10 +197,12 @@ def extract_only():
         if success and extracted_text:
             return jsonify({'success': True, 'extracted_text': extracted_text})
         else:
-            return jsonify({'success': False, 'error': 'Failed to extract text'}), 400
+            return jsonify({'success': False, 'error': 'Failed to extract text from file'}), 400
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)
+
+# --- Error Handlers ---
 
 @app.errorhandler(413)
 def too_large(e):
@@ -180,11 +210,16 @@ def too_large(e):
 
 @app.errorhandler(404)
 def not_found(e):
-    return jsonify({'error': 'Endpoint not found'}), 404
+    return jsonify({'error': 'This API endpoint does not exist.'}), 404
 
 @app.errorhandler(500)
 def internal_error(e):
-    return jsonify({'error': 'Internal server error'}), 500
+    logger.error(f"Internal Server Error: {e}")
+    return jsonify({'error': 'An internal server error occurred.'}), 500
+
+# --- Main Entry Point ---
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=3001)
+    # Use Flask's built-in server for development. Gunicorn is used in production (see Procfile).
+    port = int(os.environ.get("PORT", 3001))
+    app.run(debug=False, host='0.0.0.0', port=port)
