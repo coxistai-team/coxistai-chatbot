@@ -11,8 +11,8 @@ class SmartDeepSeek:
 
         # Your original model tiers
         self.free_model = "gpt-3.5-turbo"
-        self.paid_model = "gpt-4.1-nano"  # Note: This is not a standard OpenAI model.
-        self.reason_model = "gpt-4-turbo"
+        self.paid_model = "gpt-4o-mini"  # Updated to valid OpenAI model
+        self.reason_model = "gpt-4o"  # Updated to valid OpenAI model
 
         # Your original logic for model switching
         self.complexity_threshold = 15
@@ -52,11 +52,17 @@ class SmartDeepSeek:
             response = self.client.chat.completions.create(
                 model=model,
                 messages=messages,
-                temperature=0.5
+                temperature=0.5,
+                max_tokens=2000  # Add token limit for cost control
             )
             return response.choices[0].message.content
         except Exception as e:
             print(f"API Error for model '{model}': {e}")
+            print(f"Error type: {type(e).__name__}")
+            # Log more detailed error information
+            if hasattr(e, 'response'):
+                print(f"Response status: {e.response.status_code if hasattr(e.response, 'status_code') else 'N/A'}")
+                print(f"Response text: {e.response.text if hasattr(e.response, 'text') else 'N/A'}")
             return None
 
     def get_response(self, question: str, previous_response: str = "", system_prompt: Optional[str] = None) -> str:

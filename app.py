@@ -99,9 +99,21 @@ def health_check():
     serializable_extensions = {
         key: list(value) for key, value in ALLOWED_EXTENSIONS.items()
     }
+    
+    # Test API key
+    api_key_status = "configured" if API_KEY else "missing"
+    if API_KEY:
+        try:
+            # Simple test to verify API key works
+            test_response = assistant.get_response("Hello", system_prompt="Respond with just 'OK'")
+            api_key_status = "working" if test_response else "invalid"
+        except Exception as e:
+            api_key_status = f"error: {str(e)[:50]}"
+    
     return jsonify({
         'status': 'healthy',
-        'supported_files': serializable_extensions
+        'supported_files': serializable_extensions,
+        'api_key_status': api_key_status
     })
 
 @app.route('/api/chat/text', methods=['POST'])
@@ -124,6 +136,10 @@ def chat_text():
         return jsonify({'success': True, 'ai_response': response, 'is_educational': True})
     except Exception as e:
         logger.error(f"Error in chat_text: {str(e)}")
+        logger.error(f"Error type: {type(e).__name__}")
+        # Check if it's an API key issue
+        if "api_key" in str(e).lower() or "authentication" in str(e).lower():
+            logger.error("Possible API key authentication issue")
         return jsonify({'error': 'Failed to generate AI response.'}), 500
 
 @app.route('/api/chat/file', methods=['POST'])

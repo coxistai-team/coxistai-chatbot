@@ -50,10 +50,11 @@ def is_educational(question: str) -> bool:
         logging.error(f"Classifier error: {e}")
         return True # Fail safely
     
-questions =[
-    "what is python"
-    ]
-for q in questions:
-    print(f"Q: {q}")
-    print("Educational" if is_educational(q) else "Non-educational")
-    print("---")
+# Test code removed to prevent execution during import
+# questions =[
+#     "what is python"
+#     ]
+# for q in questions:
+#     print(f"Q: {q}")
+#     print("Educational" if is_educational(q) else "Non-educational")
+#     print("---")
